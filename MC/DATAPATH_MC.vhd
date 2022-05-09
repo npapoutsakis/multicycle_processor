@@ -2,9 +2,9 @@
 -- Company: 
 -- Engineer: 
 -- 
--- Create Date:    18:54:41 04/05/2022 
+-- Create Date:    17:49:34 05/09/2022 
 -- Design Name: 
--- Module Name:    DATAPATH - Behavioral 
+-- Module Name:    DATAPATH_MC - Behavioral 
 -- Project Name: 
 -- Target Devices: 
 -- Tool versions: 
@@ -29,15 +29,23 @@ use IEEE.STD_LOGIC_1164.ALL;
 --library UNISIM;
 --use UNISIM.VComponents.all;
 
-entity DATAPATH is
+entity DATAPATH_MC is
     Port ( 
 			  -- IFSTAGE
 			  D_CLK : in  STD_LOGIC;                                          --General
            D_Reset : in  STD_LOGIC;														--General
            D_PC_Sel : in  STD_LOGIC;													--Comes from control
            D_PC_LdEn : in  STD_LOGIC;													--Comes from control
+			  
 			  D_PC : out  STD_LOGIC_VECTOR (31 downto 0);							--Goes to MEM for instr
            
+			  --Update!! -> Signals for registers
+			  alpha_we : in STD_LOGIC;
+			  beta_we : in STD_LOGIC;
+			  instr_reg_we : in STD_LOGIC;
+			  mem_reg_we : in STD_LOGIC;
+			  alu_reg_we : in STD_LOGIC;
+							  	  
 			  -- DECSTAGE
 			  D_Instr : in  STD_LOGIC_VECTOR (31 downto 0);							--Takes from MEM (text segment)
            D_RF_WrEnable : in  STD_LOGIC;												--Comes from control -> RegWrite
@@ -53,15 +61,27 @@ entity DATAPATH is
            D_Byte_Operation : in  STD_LOGIC;											--Comes from control
            D_MEM_WrEnable : in  STD_LOGIC;											--Comes from control
            D_MM_ReadData : in  STD_LOGIC_VECTOR (31 downto 0);					--Will come from RAM
+			  
 			  D_MM_Addr : out STD_LOGIC_VECTOR (31 downto 0);						--Goes to RAM -> data_addr
 			  D_MM_WrEn : out STD_LOGIC;												   --Goes to RAM -> data_we
 			  D_MM_WrData : out STD_LOGIC_VECTOR (31 downto 0)						--Goes to RAM -> data_in
 			  
 			 );     
 	
-end DATAPATH;
+end DATAPATH_MC;
 
-architecture Behavioral of DATAPATH is
+architecture Behavioral of DATAPATH_MC is
+
+--Datapath is the connection of all the stages we've created so far
+--Component declaration: 
+
+component Register32Bit is
+    Port ( CLK : in  STD_LOGIC;
+           RST : in  STD_LOGIC;
+           WE : in  STD_LOGIC;
+           Datain : in  STD_LOGIC_VECTOR (31 downto 0);
+           Dataout : out  STD_LOGIC_VECTOR (31 downto 0));
+end component;
 
 component IFSTAGE is
     Port ( PC_Immed : in  STD_LOGIC_VECTOR (31 downto 0);
@@ -108,14 +128,43 @@ component MEMSTAGE is
            MM_RdData : in  STD_LOGIC_VECTOR (31 downto 0));
 end component;
 
+--Declaring usefull signals to connect components.
 signal immed_signal : STD_LOGIC_VECTOR (31 downto 0);
 signal alu_out_signal : STD_LOGIC_VECTOR (31 downto 0);
 signal mem_dataOut_signal : STD_LOGIC_VECTOR (31 downto 0);
+
+--Connect each output with a register
 signal data_from_rfA : STD_LOGIC_VECTOR (31 downto 0);
 signal data_from_rfB : STD_LOGIC_VECTOR (31 downto 0);
 
-begin
+--Connect PC to register signal
+signal to_reg : STD_LOGIC_VECTOR (31 downto 0);
 
+--Connects the instruction from register to DECstage
+signal instReg_to_decstage : STD_LOGIC_VECTOR (31 downto 0);
+
+--Connects the output of the mem_register to the decstage -> MEM_OUT
+signal mem_register_to_dec : STD_LOGIC_VECTOR (31 downto 0);
+
+--Signals for A, B registers and their outputs
+signal alpha_to_ex : STD_LOGIC_VECTOR (31 downto 0);
+signal beta_to_ex : STD_LOGIC_VECTOR (31 downto 0);
+
+--Signals declared to move from mux to the Exstage
+signal to_exstage : STD_LOGIC_VECTOR (31 downto 0);
+
+--Signal for output of the alu register
+signal alu_register_out : STD_LOGIC_VECTOR (31 downto 0);
+
+----Signal that give us the jump adress
+--signal jump : STD_LOGIC_VECTOR (31 downto 0);
+--
+----Signal connecting last mux with the data in of the PC
+--signal jump_mux_out : STD_LOGIC_VECTOR (31 downto 0);
+
+begin
+	
+	--After the update, IFSTAGE is the same as on the single cycle.
 	If_Stage : IFSTAGE
 		port map ( PC_Immed => immed_signal,
 					  PC_Sel => D_PC_Sel,
@@ -125,12 +174,27 @@ begin
 					  PC => D_PC
 					);
 
-
-	Dec_Stage : DECSTAGE
-		port map ( Instr => D_Instr,
-					  RF_WrEn => D_RF_WrEnable,
-					  ALU_out => alu_out_signal,
-					  MEM_out => mem_dataOut_signal,
+	Instruction_Register : Register32Bit
+		port map ( CLK => D_CLK,
+					  RST => D_Reset,
+					  WE => instr_reg_we,
+					  Datain => D_Instr,													--COMES THE INSTR FROM MEM
+					  Dataout => instReg_to_decstage									--will connect to the input of dec_stage
+					);	
+	
+	Memory_data_register : Register32Bit
+		port map ( CLK => D_CLK,
+					  RST => D_Reset,
+					  WE => mem_reg_we,
+					  Datain => mem_dataOut_signal,									--COMES DATA FROM MEM
+					  Dataout => mem_register_to_dec									--The MEM_OUT input
+					);	
+	
+	Dec_Stage : DECSTAGE	
+		port map ( Instr => instReg_to_decstage,									--Contains the Istruction
+					  RF_WrEn => D_RF_WrEnable,	
+					  ALU_out => alu_register_out,									--Took input from alu register									
+					  MEM_out => mem_register_to_dec, 								--Output of the mem_reg connected
 					  RF_WrData_sel => D_RF_WrData_Selection,
 					  RF_B_sel => D_RF_B_Selection,
 					  RST => D_Reset,
@@ -140,29 +204,68 @@ begin
 					  RF_B => data_from_rfB
 			  );	
 
-
+	alpha_register : Register32Bit
+		port map ( CLK => D_CLK,
+					  RST => D_Reset,
+					  WE => alpha_we,
+					  Datain => data_from_rfA,											--Comes from the decstage
+					  Dataout => alpha_to_ex 									      --Goes to ExStage
+					);	
+	
+	
+	beta_register : Register32Bit
+		port map ( CLK => D_CLK,
+					  RST => D_Reset,
+					  WE => beta_we,
+					  Datain => data_from_rfB,											--Comes from the decstag
+					  Dataout => beta_to_ex								         	--Goes to the Ex-stage
+					);
+	
+	
 	Ex_Stage : EXSTAGE
-		port map ( RF_A => data_from_rfA,
-					  RF_B => data_from_rfB,
+		port map ( RF_A => alpha_to_ex,												--Inputs now are coming from the registers
+					  RF_B => beta_to_ex,
 					  Immed => immed_signal,
 					  ALU_Bin_sel => D_ALU_Bin_Selection,
 					  ALU_func => D_ALU_Function,
 					  ALU_out => alu_out_signal,
 					  ALU_zero => D_ALU_Zero
 					);
-
-
+	
+	
+	alu_out_register : Register32Bit
+		port map ( CLK => D_CLK,
+					  RST => D_Reset,
+					  WE => alu_reg_we,
+					  Datain => alu_out_signal,										--Comes from the exstage
+					  Dataout => alu_register_out								      
+					);
+	
+	
 	Mem_Stage : MEMSTAGE
 		port map ( ByteOp => D_Byte_Operation,
 					  Mem_WrEn => D_MEM_WrEnable,
-					  ALU_MEM_Addr => alu_out_signal,
-					  MEM_DataIn => data_from_rfB,
+					  ALU_MEM_Addr => alu_register_out,								--Register output taken
+					  MEM_DataIn => beta_to_ex,										--Takes the data from beta register (Rd)
 					  MEM_DataOut => mem_dataOut_signal,
 					  MM_WrEn => D_MM_WrEn,
 					  MM_Addr => D_MM_Addr,
 					  MM_WrData => D_MM_WrData,
 					  MM_RdData => D_MM_ReadData
 					);
+
+	--calculating the jump address
+--	jump(31 downto 28)<= to_mux(31 downto 28);
+--	jump(27 downto 0) <= std_logic_vector(shift_left(signed(instReg_to_decstage(25 downto 0)), 2)); 
+--
+--	branch_mux : Mux4to1
+--		port map ( InputA => alu_out_signal,
+--					  InputB => alu_register_out,
+--					  InputC =>	jump,
+--					  InputD => (others => '0'), 
+--					  Sel => D_PCSource,
+--					  mux_out => jump_mux_out	
+--					);	
 
 end Behavioral;
 
