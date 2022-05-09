@@ -67,6 +67,16 @@ ARCHITECTURE behavior OF datapath_mc_testbench IS
         );
     END COMPONENT;
     
+	 COMPONENT RAM is
+     port (
+		  clk       : in std_logic;
+        inst_addr : in std_logic_vector(10 downto 0); 
+        inst_dout : out std_logic_vector(31 downto 0);
+        data_we   : in std_logic;
+        data_addr : in std_logic_vector(10 downto 0); 
+        data_din  : in std_logic_vector(31 downto 0); 
+        data_dout : out std_logic_vector(31 downto 0));
+	 end COMPONENT;
 
    --Inputs
    signal D_CLK : std_logic := '0';
@@ -88,6 +98,12 @@ ARCHITECTURE behavior OF datapath_mc_testbench IS
    signal D_MEM_WrEnable : std_logic := '0';
    signal D_MM_ReadData : std_logic_vector(31 downto 0) := (others => '0');
 
+	signal clk : std_logic := '0';
+	signal inst_addr : std_logic_vector(10 downto 0) := (others => '0');
+	signal data_we : std_logic := '0';
+	signal data_addr : std_logic_vector(10 downto 0) := (others => '0');
+	signal data_din : std_logic_vector(31 downto 0) := (others => '0');
+
  	--Outputs
    signal D_PC : std_logic_vector(31 downto 0);
    signal D_ALU_Zero : std_logic;
@@ -96,7 +112,7 @@ ARCHITECTURE behavior OF datapath_mc_testbench IS
    signal D_MM_WrData : std_logic_vector(31 downto 0);
 
    -- Clock period definitions
-   constant D_CLK_period : time := 10 ns;
+   constant D_CLK_period : time := 100 ns;
  
 BEGIN
  
@@ -127,6 +143,16 @@ BEGIN
           D_MM_WrData => D_MM_WrData
         );
 
+	memory : RAM PORT MAP (
+			 clk => D_CLK,
+			 inst_addr => D_PC(12 downto 2),
+			 inst_dout => D_Instr,
+			 data_we   => D_MM_WrEn,
+			 data_addr => D_MM_Addr(12 downto 2),
+			 data_din  => D_MM_WrData,
+			 data_dout => D_MM_ReadData
+		  );
+
    -- Clock process definitions
    D_CLK_process :process
    begin
@@ -141,13 +167,46 @@ BEGIN
    stim_proc: process
    begin		
       -- hold reset state for 100 ns.
-      wait for 100 ns;	
-
-      wait for D_CLK_period*10;
-
-      -- insert stimulus here 
-
-      wait;
+      D_Reset <= '1';
+		wait for D_CLK_period*4;	
+		
+		-- addi
+		--Instruction Fetch
+		D_Reset <= '0';
+		mem_reg_we <= '0';
+		D_PC_LdEn <= '0';
+		D_PC_Sel <= '0';
+		instr_reg_we <= '1';
+		alpha_we <= '1';	--Dont care
+		beta_we <= '0';	--Dont care
+		D_ALU_Function <= "0000";
+		D_MEM_WrEnable <= '0';
+ 		D_RF_WrEnable <= '0';
+		wait for D_CLK_period;
+		
+		--Instruction Decode + Register Fetch
+		D_ALU_Function <= "0000";
+		D_MEM_WrEnable <= '0';
+		alpha_we <= '1';	
+		beta_we <= '0';
+		alu_reg_we <= '1';
+		wait for D_CLK_period;		
+		
+		--Execute instruction addi
+		D_ALU_Bin_Selection <= '1';
+		D_ALU_Function <= "0000";
+		alu_reg_we <= '0';
+		wait for D_CLK_period;
+		
+		--Complete
+		D_RF_WrData_Selection <= '0';
+		D_RF_WrEnable <= '1';
+		D_PC_LdEn <= '0';
+		wait for D_CLK_period;		
+      
+		D_Reset <= '1';
+		wait for D_CLK_period;
+		wait;
    end process;
 
 END;
