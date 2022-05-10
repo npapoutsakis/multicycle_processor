@@ -56,7 +56,7 @@ ARCHITECTURE behavior OF datapath_mc_testbench IS
          D_RF_WrData_Selection : IN  std_logic;
          D_RF_B_Selection : IN  std_logic;
          D_ALU_Bin_Selection : IN  std_logic;
-         D_ALU_Function : IN  std_logic_vector(3 downto 0);
+         D_ALU_Op : IN  std_logic_vector(2 downto 0);
          D_ALU_Zero : OUT  std_logic;
          D_Byte_Operation : IN  std_logic;
          D_MEM_WrEnable : IN  std_logic;
@@ -93,7 +93,7 @@ ARCHITECTURE behavior OF datapath_mc_testbench IS
    signal D_RF_WrData_Selection : std_logic := '0';
    signal D_RF_B_Selection : std_logic := '0';
    signal D_ALU_Bin_Selection : std_logic := '0';
-   signal D_ALU_Function : std_logic_vector(3 downto 0) := (others => '0');
+   signal D_ALU_Op : std_logic_vector(2 downto 0) := (others => '0');
    signal D_Byte_Operation : std_logic := '0';
    signal D_MEM_WrEnable : std_logic := '0';
    signal D_MM_ReadData : std_logic_vector(31 downto 0) := (others => '0');
@@ -133,7 +133,7 @@ BEGIN
           D_RF_WrData_Selection => D_RF_WrData_Selection,
           D_RF_B_Selection => D_RF_B_Selection,
           D_ALU_Bin_Selection => D_ALU_Bin_Selection,
-          D_ALU_Function => D_ALU_Function,
+          D_ALU_Op => D_ALU_Op,
           D_ALU_Zero => D_ALU_Zero,
           D_Byte_Operation => D_Byte_Operation,
           D_MEM_WrEnable => D_MEM_WrEnable,
@@ -168,7 +168,7 @@ BEGIN
    begin		
       -- hold reset state for 100 ns.
       D_Reset <= '1';
-		wait for D_CLK_period*4;	
+		wait for D_CLK_period*2;	
 		
 		-- addi
 		--Instruction Fetch
@@ -177,35 +177,150 @@ BEGIN
 		D_PC_LdEn <= '0';
 		D_PC_Sel <= '0';
 		instr_reg_we <= '1';
-		alpha_we <= '1';	--Dont care
+		alpha_we <= '0';	--Dont care
 		beta_we <= '0';	--Dont care
-		D_ALU_Function <= "0000";
+		D_ALU_Op <= "000";
 		D_MEM_WrEnable <= '0';
  		D_RF_WrEnable <= '0';
 		wait for D_CLK_period;
 		
 		--Instruction Decode + Register Fetch
-		D_ALU_Function <= "0000";
+		D_ALU_Op <= "001";
 		D_MEM_WrEnable <= '0';
 		alpha_we <= '1';	
 		beta_we <= '0';
 		alu_reg_we <= '1';
+		D_RF_B_Selection <= '0';
 		wait for D_CLK_period;		
 		
 		--Execute instruction addi
 		D_ALU_Bin_Selection <= '1';
-		D_ALU_Function <= "0000";
-		alu_reg_we <= '0';
+		D_ALU_Op <= "001";
+		alu_reg_we <= '1';
 		wait for D_CLK_period;
 		
 		--Complete
+		alu_reg_we <= '0';
 		D_RF_WrData_Selection <= '0';
 		D_RF_WrEnable <= '1';
-		D_PC_LdEn <= '0';
+		D_PC_LdEn <= '1';
 		wait for D_CLK_period;		
-      
-		D_Reset <= '1';
+		
+		-- ori
+		--Instruction Fetch
+		D_Reset <= '0';
+		mem_reg_we <= '0';
+		D_PC_LdEn <= '0';
+		D_PC_Sel <= '0';
+		instr_reg_we <= '1';
+		alpha_we <= '0';	--Dont care
+		beta_we <= '0';	--Dont care
+		D_ALU_Op <= "000";
+		D_MEM_WrEnable <= '0';
+ 		D_RF_WrEnable <= '0';
 		wait for D_CLK_period;
+		
+		--Instruction Decode + Register Fetch
+		D_ALU_Op <= "010";
+		D_MEM_WrEnable <= '0';
+		alpha_we <= '1';	
+		beta_we <= '0';
+		alu_reg_we <= '1';
+		D_RF_B_Selection <= '0';
+		wait for D_CLK_period;		
+		
+		--Execute instruction ori
+		D_ALU_Bin_Selection <= '1';
+		alu_reg_we <= '1';
+		wait for D_CLK_period;		
+		
+		--Complete
+		alu_reg_we <= '0';
+		D_RF_WrData_Selection <= '0';
+		D_RF_WrEnable <= '1';
+		D_PC_LdEn <= '1';
+		wait for D_CLK_period;
+		
+
+		-- sw
+		--Instruction Fetch	
+		mem_reg_we <= '0';
+		D_PC_LdEn <= '0';
+		D_PC_Sel <= '0';
+		instr_reg_we <= '1';
+		alpha_we <= '0';	--Dont care
+		beta_we <= '0';	--Dont care
+		D_ALU_Op <= "001";
+		D_MEM_WrEnable <= '0';
+ 		D_RF_WrEnable <= '0';
+		wait for D_CLK_period;		
+		
+		--Instruction Decode + Register Fetch
+		D_ALU_Op <= "001";
+		D_MEM_WrEnable <= '0';
+		alpha_we <= '1';	
+		beta_we <= '1';
+		alu_reg_we <= '1';
+		D_RF_B_Selection <= '1';
+		mem_reg_we <= '1';
+		wait for D_CLK_period;		
+		
+		--Execute instruction sw
+		D_ALU_Bin_Selection <= '1';
+		alu_reg_we <= '1';
+		wait for D_CLK_period;	
+		
+		--Complete
+		alu_reg_we <= '0';
+		D_RF_WrData_Selection <= '0';
+		D_RF_WrEnable <= '0';
+		D_PC_LdEn <= '1';
+		D_MEM_WrEnable <= '1';
+		wait for D_CLK_period;		
+		
+		
+		-- lw
+		--Instruction Fetch
+		mem_reg_we <= '0';
+		D_PC_LdEn <= '0';
+		D_PC_Sel <= '0';
+		instr_reg_we <= '1';
+		alpha_we <= '0';	--Dont care
+		beta_we <= '0';	--Dont care
+		D_ALU_Op <= "001";
+		D_MEM_WrEnable <= '0';
+ 		D_RF_WrEnable <= '0';
+		wait for D_CLK_period;		
+		
+		--Instruction Decode + Register Fetch
+		D_ALU_Op <= "001";
+		D_MEM_WrEnable <= '0';
+		alpha_we <= '1';	
+		beta_we <= '0';
+		alu_reg_we <= '1';
+		D_RF_B_Selection <= '1';
+		mem_reg_we <= '1';
+		wait for D_CLK_period;		
+		
+		--Execute instruction lw
+		D_ALU_Bin_Selection <= '1';
+		wait for D_CLK_period;		
+		
+		
+		--Mem
+		wait for D_CLK_period;
+		
+		--Complete -> Load on RF
+		alu_reg_we <= '1';
+		D_RF_WrData_Selection <= '1';
+		D_RF_WrEnable <= '1';
+		D_PC_LdEn <= '1';
+		D_MEM_WrEnable <= '0';
+		wait for D_CLK_period;		
+		
+		D_Reset <= '1';
+		D_PC_LdEn <= '0';
+		wait for D_CLK_period*2;	
 		wait;
    end process;
 

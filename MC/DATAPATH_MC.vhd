@@ -54,7 +54,7 @@ entity DATAPATH_MC is
 			  
 			  -- EXSTAGE
            D_ALU_Bin_Selection : in  STD_LOGIC;										--Comes from control -> ALUScr
-           D_ALU_Function : in  STD_LOGIC_VECTOR (3 downto 0);					--Comes from control -> ALUCtrl
+           D_ALU_Op : in  STD_LOGIC_VECTOR (2 downto 0);							--Comes from control -> ALUCtrl
 			  D_ALU_Zero : out  STD_LOGIC;												--Will connect it with and AND gate and with pc_sel
 			  
 			  -- MEMSTAGE
@@ -128,6 +128,12 @@ component MEMSTAGE is
            MM_RdData : in  STD_LOGIC_VECTOR (31 downto 0));
 end component;
 
+component ALU_Control is
+    Port ( instr_funct : in  STD_LOGIC_VECTOR (5 downto 0);
+           op : in  STD_LOGIC_VECTOR (2 downto 0);
+           alu_funct : out  STD_LOGIC_VECTOR (3 downto 0));
+end component;
+
 --Declaring usefull signals to connect components.
 signal immed_signal : STD_LOGIC_VECTOR (31 downto 0);
 signal alu_out_signal : STD_LOGIC_VECTOR (31 downto 0);
@@ -161,6 +167,9 @@ signal alu_register_out : STD_LOGIC_VECTOR (31 downto 0);
 --
 ----Signal connecting last mux with the data in of the PC
 --signal jump_mux_out : STD_LOGIC_VECTOR (31 downto 0);
+
+--Signal for alu_ctrl - exstage connection
+signal funct : STD_LOGIC_VECTOR (3 downto 0);
 
 begin
 	
@@ -204,6 +213,13 @@ begin
 					  RF_B => data_from_rfB
 			  );	
 
+	alu_ctrl : ALU_Control
+		port map ( instr_funct => instReg_to_decstage(5 downto 0),
+					  op => D_ALU_Op,
+					  alu_funct => funct
+					);
+
+
 	alpha_register : Register32Bit
 		port map ( CLK => D_CLK,
 					  RST => D_Reset,
@@ -227,7 +243,7 @@ begin
 					  RF_B => beta_to_ex,
 					  Immed => immed_signal,
 					  ALU_Bin_sel => D_ALU_Bin_Selection,
-					  ALU_func => D_ALU_Function,
+					  ALU_func => funct,
 					  ALU_out => alu_out_signal,
 					  ALU_zero => D_ALU_Zero
 					);
