@@ -36,9 +36,9 @@ entity CONTROL_PIPELINE is
 			  RF_B_Selection : out  STD_LOGIC;							--RegDst														--WB
            RF_WriteEn : out  STD_LOGIC;								--RegWr														--WB
            RF_WriteData_Selection : out  STD_LOGIC;				--MemToReg													--WB
-           ALU_Control : out  STD_LOGIC_VECTOR (3 downto 0);	--ALU_Opcode												--EX
+           ALU_Operation : out  STD_LOGIC_VECTOR (2 downto 0);	--ALU_Opcode												--EX
 			  ALU_Source : out  STD_LOGIC;								--ALUSrc --> ALU_Bin_Sel								--EX
-			  Rtype_Funct : in  STD_LOGIC_VECTOR (5 downto 0);		--Funct														
+--			  Rtype_Funct : in  STD_LOGIC_VECTOR (5 downto 0);		--Funct														
            Zero : in  STD_LOGIC;											--ALU_Zero													
            Byte_Op : out  STD_LOGIC;									--word/byte													--MEM
            MEM_Enable : out  STD_LOGIC);								--MemWr														--MEM
@@ -47,7 +47,7 @@ end CONTROL_PIPELINE;
 architecture Behavioral of CONTROL_PIPELINE is
 
 begin
-	CHARIS_Implementation : process (Opcode, Rtype_Funct, Zero) 
+	CHARIS_Implementation : process (Opcode, Zero) 
 		begin
 			--R-TYPE
 			if Opcode = "100000"	then  									
@@ -57,7 +57,7 @@ begin
 				RF_WriteEn <= '1';											--RegWr Enabled
 				RF_WriteData_Selection <= '0';							--MemToReg is ALU_Out
 				RF_B_Selection <= '0';										--RegDst is 0 , so to select the Rt(15 downto 11)
-				ALU_Control <= Rtype_Funct(3 downto 0);				--ALUctr is funct(3 donwto 0)
+				ALU_Operation <= "000";										--ALUctr is funct(3 donwto 0)
 				ALU_Source <= '0';											--ALU_Source or ALU_Bin_Sel is 0 -> RF_B
 				Byte_Op <= '0'; 												--Dont care in Rtype instructions
 				MEM_Enable <= '0';											--Dont care in Rtype instructions
@@ -75,13 +75,13 @@ begin
 				MEM_Enable <= '0';											--Dont care in Itype instructions	
 				
 				if Opcode = "111000"	or Opcode = "111001" or Opcode = "110000" then	-- li, lui, addi				
-					ALU_Control <= "0000"; 									-- We need ALU to make an addition in order to implement the istructions
+					ALU_Operation <= "001"; 								-- We need ALU to make an addition in order to implement the istructions
 				
 				elsif Opcode = "110010" then														-- nandi
-					ALU_Control <= "0101"; 									-- We need ALU to make a nand operation in order to implement nandi
+					ALU_Operation <= "011"; 								-- We need ALU to make a nand operation in order to implement nandi
 				
 				elsif Opcode = "110011" then														-- ori
-					ALU_Control <= "0011"; 									-- We need ALU to make an or operation in order to implement ori
+					ALU_Operation <= "010"; 								-- We need ALU to make an or operation in order to implement ori
 				
 				end if;
 			
@@ -99,10 +99,10 @@ begin
 				if Opcode = "111111" then			-- b											
 					PC_Selection <= '1';  									--nPC_sel = PC + 4 + SignExt(Immed)<<2
 
-					ALU_Control <= Rtype_Funct(3 downto 0);			--ALUctr is DONTCARE
+--					ALU_Control <= Rtype_Funct(3 downto 0);			--ALUctr is DONTCARE
 				
 				elsif Opcode = "000000" then		-- beq
-					ALU_Control <= "0001";									--We need ALU to make an subtraction in order to implement the istruction	
+					ALU_Operation <= "100";									--We need ALU to make an subtraction in order to implement the istruction	
 				
 					if Zero = '1' then
 						PC_Selection <= '1';  								--nPC_sel = PC + 4 + SignExt(Immed)<<2
@@ -111,7 +111,7 @@ begin
 					end if;
 				
 				elsif Opcode = "000001" then		-- bne
-					ALU_Control <= "0001";									--We need ALU to make an subtraction in order to implement the istruction	
+					ALU_Operation <= "100";									--We need ALU to make an subtraction in order to implement the istruction	
 				
 					if Zero = '1' then
 						PC_Selection <= '0';  								--nPC_sel = PC + 4 
@@ -129,7 +129,7 @@ begin
 				RF_WriteEn <= '1';											--RegWr Enabled
 				RF_WriteData_Selection <= '1';							--MemToReg is Mem_Out
 				RF_B_Selection <= '1';										--RegDst is 1 , so to select the Rt(15 downto 11)
-				ALU_Control <= "0000";										--ALUctr is add	
+				ALU_Operation <= "001";										--ALUctr is add	
 				ALU_Source <= '1';											--ALU_Source or ALU_Bin_Sel is 1 -> Immed
 				MEM_Enable <= '0';											--0, we dont use mem in load				
 			
@@ -147,7 +147,7 @@ begin
 				RF_WriteEn <= '0';											--RegWr Disabled
 				RF_WriteData_Selection <= '1';							--MemToReg is but dont care
 				RF_B_Selection <= '1';										--RegDst is 1 , but dont care
-				ALU_Control <= "0000";										--ALUctr is add	
+				ALU_Operation <= "001";										--ALUctr is add	
 				ALU_Source <= '1';											--ALU_Source or ALU_Bin_Sel is 1 -> Immed
 				MEM_Enable <= '1';											--1, we need to store the value			
 			
