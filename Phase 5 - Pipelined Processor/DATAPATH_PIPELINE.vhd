@@ -2,7 +2,7 @@
 -- Company: 
 -- Engineer: 
 -- 
--- Create Date:    18:20:27 05/13/2022 
+-- Create Date:    01:08:55 05/18/2022 
 -- Design Name: 
 -- Module Name:    DATAPATH_PIPELINE - Behavioral 
 -- Project Name: 
@@ -35,17 +35,19 @@ entity DATAPATH_PIPELINE is
 			  D_CLK : in  STD_LOGIC;                                          --General
            D_Reset : in  STD_LOGIC;														--General
            D_PC_Sel : in  STD_LOGIC;													--Comes from control
-           D_PC_LdEn : in  STD_LOGIC;													--Comes from control
+--         D_PC_LdEn : in  STD_LOGIC;													--Comes from control
 			  
 			  D_PC : out  STD_LOGIC_VECTOR (31 downto 0);							--Goes to MEM for instr
            
-			  -- Update!! -> Signals for registers
+			  --Update!! -> Signals for registers
 --			  alpha_we : in STD_LOGIC;
 --			  beta_we : in STD_LOGIC;
-			  instr_reg_we : in STD_LOGIC;
+--			  IF_ID_RegEnable : in STD_LOGIC;
 --			  mem_reg_we : in STD_LOGIC;
 --			  alu_reg_we : in STD_LOGIC;
-							  	  
+			  
+			  IF_ID_Opcode : out STD_LOGIC_VECTOR (5 downto 0);
+			  
 			  -- DECSTAGE
 			  D_Instr : in  STD_LOGIC_VECTOR (31 downto 0);							--Takes from MEM (text segment)
            D_RF_WrEnable : in  STD_LOGIC;												--Comes from control -> RegWrite
@@ -57,7 +59,6 @@ entity DATAPATH_PIPELINE is
            D_ALU_Op : in  STD_LOGIC_VECTOR (2 downto 0);							--Comes from control -> ALUCtrl
 			  D_ALU_Zero : out  STD_LOGIC;												--Will connect it with and AND gate and with pc_sel
 			  
-			  
 			  -- MEMSTAGE
            D_Byte_Operation : in  STD_LOGIC;											--Comes from control
            D_MEM_WrEnable : in  STD_LOGIC;											--Comes from control
@@ -68,21 +69,21 @@ entity DATAPATH_PIPELINE is
 			  D_MM_WrData : out STD_LOGIC_VECTOR (31 downto 0)						--Goes to RAM -> data_in
 			  
 			 );
-
+			 
 end DATAPATH_PIPELINE;
-
 
 architecture Behavioral of DATAPATH_PIPELINE is
 
 --Datapath is the connection of all the stages we've created so far
 --Component declaration: 
 
-component Register32Bit is
-    Port ( CLK : in  STD_LOGIC;
+component GenericRegister is
+	 generic ( Size : Integer); --Size we want
+	 Port ( CLK : in  STD_LOGIC;
            RST : in  STD_LOGIC;
            WE : in  STD_LOGIC;
-           Datain : in  STD_LOGIC_VECTOR (31 downto 0);
-           Dataout : out  STD_LOGIC_VECTOR (31 downto 0));
+           Datain : in  STD_LOGIC_VECTOR (Size - 1 downto 0);
+           Dataout : out  STD_LOGIC_VECTOR (Size - 1 downto 0));
 end component;
 
 component IFSTAGE is
@@ -99,9 +100,10 @@ component DECSTAGE is
            RF_WrEn : in  STD_LOGIC;
            ALU_out : in  STD_LOGIC_VECTOR (31 downto 0);
            MEM_out : in  STD_LOGIC_VECTOR (31 downto 0);
-           RF_WrData_sel : in  STD_LOGIC;
+           RF_Address_Write : in  STD_LOGIC_VECTOR (4 downto 0);
+			  RF_WrData_sel : in  STD_LOGIC;
            RF_B_sel : in  STD_LOGIC;
-           DEC_RF_AWR : in STD_LOGIC_VECTOR (4 downto 0);
+           FinalData : out STD_LOGIC_VECTOR (31 downto 0);
 			  RST : in STD_LOGIC;
 			  Clk : in  STD_LOGIC;
            Immed : out  STD_LOGIC_VECTOR (31 downto 0);
@@ -137,269 +139,280 @@ component ALU_Control is
            alu_funct : out  STD_LOGIC_VECTOR (3 downto 0));
 end component;
 
-
-component Mux2x1_5Bits is
-    Port ( in0 : in  STD_LOGIC_VECTOR (4 downto 0);
-           in1 : in  STD_LOGIC_VECTOR (4 downto 0);
-           sel : in  STD_LOGIC;
-           outt : out  STD_LOGIC_VECTOR (4 downto 0));
+component ForwardingUnit is
+	Port ( ID_EX_Rs :in STD_LOGIC_VECTOR(4 downto 0);
+			 ID_EX_Rt :in STD_LOGIC_VECTOR(4 downto 0);
+			 EX_MEM_Rd : in STD_LOGIC_VECTOR(4 downto 0);
+			 MEM_WB_Rd : in STD_LOGIC_VECTOR(4 downto 0); 
+			
+		 	 EX_MEM_RF_WrEn : in STD_LOGIC;
+			 MEM_WB_RF_WrEn : in STD_LOGIC;
+			
+			 FORWARD_A : out STD_LOGIC_VECTOR(1 downto 0);
+			 FORWARD_B : out STD_LOGIC_VECTOR(1 downto 0)
+		);
 end component;
 
+component MUX_4x1 is
+    Port ( inputA : in  STD_LOGIC_VECTOR (31 downto 0);
+           inputB : in 	STD_LOGIC_VECTOR (31 downto 0);
+           inputC : in  STD_LOGIC_VECTOR (31 downto 0);
+			  inputD : in 	STD_LOGIC_VECTOR (31 downto 0);
+           Selector : in  STD_LOGIC_VECTOR (1 downto 0);
+           MuxOut : out  STD_LOGIC_VECTOR (31 downto 0));
+end component;
+
+component SignalMux is
+    Port ( inputA : in  STD_LOGIC_VECTOR (7 downto 0);
+           chooser : in  STD_LOGIC;
+			  control_signal_out : out  STD_LOGIC_VECTOR (7 downto 0)
+			 );
+end component;
+
+component HazardDetectionUnit is
+	Port ( IF_ID_Rs : in STD_LOGIC_VECTOR(4 downto 0);
+			 IF_ID_Rt : in STD_LOGIC_VECTOR(4 downto 0);
+			 ID_EX_RD : in STD_LOGIC_VECTOR(4 downto 0);
+			 ID_EX_MemWrEn : in STD_LOGIC; 
+			 ID_EX_Opcode : in STD_LOGIC_VECTOR(5 downto 0);
+			 Control_Mux_Sel : out STD_LOGIC;
+			 IF_ID_WrEn : out STD_LOGIC;
+			 PC_LdEnable : out STD_LOGIC
+			);
+end component;
+
+
+--Signal for alu_ctrl - exstage connection
+signal funct : STD_LOGIC_VECTOR (3 downto 0);
+
 --Declaring usefull signals to connect components.
-signal immed_signal : STD_LOGIC_VECTOR (31 downto 0);  --will come from decode
-signal alu_out_signal : STD_LOGIC_VECTOR (31 downto 0);	
+signal immed_signal : STD_LOGIC_VECTOR (31 downto 0);
+signal alu_out_signal : STD_LOGIC_VECTOR (31 downto 0);
 signal mem_dataOut_signal : STD_LOGIC_VECTOR (31 downto 0);
 
 --Connect each output with a register
 signal data_from_rfA : STD_LOGIC_VECTOR (31 downto 0);
 signal data_from_rfB : STD_LOGIC_VECTOR (31 downto 0);
 
---Connects the instruction from register to DECstage
-signal instReg_to_decstage : STD_LOGIC_VECTOR (31 downto 0);
+signal if_id_instr : STD_LOGIC_VECTOR (31 downto 0);
 
---Connects the output of the mem_register to the decstage -> MEM_OUT
-signal mem_register_to_dec : STD_LOGIC_VECTOR (31 downto 0);
+signal if_id_en : STD_LOGIC;
 
---Signals for A, B registers and their outputs
-signal alpha_to_ex : STD_LOGIC_VECTOR (31 downto 0);
-signal beta_to_ex : STD_LOGIC_VECTOR (31 downto 0);
+--signal id_ex_input : STD_LOGIC_VECTOR (108 downto 0);
+signal id_ex_output : STD_LOGIC_VECTOR (124 downto 0);
 
---Signals declared to move from mux to the Exstage
-signal to_exstage : STD_LOGIC_VECTOR (31 downto 0);
+--signal ex_mem_input : STD_LOGIC_VECTOR (72 downto 0);
+signal ex_mem_output : STD_LOGIC_VECTOR (72 downto 0);
 
---Signal for output of the alu register
-signal alu_register_out : STD_LOGIC_VECTOR (31 downto 0);
+--signal mem_wb_input : STD_LOGIC_VECTOR (70 downto 0);
+signal mem_wb_output : STD_LOGIC_VECTOR (70 downto 0);
 
---gia to immed + pc + 4
-signal immed_reg_out : STD_LOGIC_VECTOR (31 downto 0);
 
---For ID/EX -> Rd, Rs, Rt and Control Signals
-signal rt_rd_rs_plus_signals : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+--Signals for selectors in 4x1 mux -> Forward
+signal forward_alpha : STD_LOGIC_VECTOR (1 downto 0);
+signal forward_beta : STD_LOGIC_VECTOR (1 downto 0);
 
---For ID/EX -> Rd, Rs, Rt and Control Signals
-signal regs_and_control_signals_out : STD_LOGIC_VECTOR (31 downto 0);
+signal mux_rfa_out : STD_LOGIC_VECTOR (31 downto 0);
+signal mux_rfb_out : STD_LOGIC_VECTOR (31 downto 0);
 
---Signal for alu_ctrl - exstage connection
-signal funct : STD_LOGIC_VECTOR (3 downto 0);
+--Comes from decstage
+signal data_out : STD_LOGIC_VECTOR (31 downto 0);
 
---Signal connecting Rt, Rd from ID/EX to mux 
-signal idex_mux_out : STD_LOGIC_VECTOR (4 downto 0);
+signal control_mux_out : STD_LOGIC_VECTOR (7 downto 0);
+signal control_mux_selector : STD_LOGIC;
 
---For EX/MEM
-signal control_plus_rd_signal : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
-
---For EX/MEM outputs
-signal ex_mem_beta_register_out : STD_LOGIC_VECTOR (31 downto 0);
-signal dest_signals_register_out : STD_LOGIC_VECTOR (31 downto 0);
-
---AluOut for mem/wb
-signal final_alu_out : STD_LOGIC_VECTOR (31 downto 0);
-
---To store last signals in mem/wb
-signal mem_wb_out : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
-signal final_to_mux : STD_LOGIC_VECTOR (31 downto 0);
+signal pc_load_enable : STD_LOGIC;
 
 begin
 
 	If_Stage : IFSTAGE
-		port map ( PC_Immed => immed_reg_out,
+		port map ( PC_Immed => id_ex_output(36 downto 5),
 					  PC_Sel => D_PC_Sel,
-					  PC_LdEn => D_PC_LdEn,
+					  PC_LdEn => pc_load_enable,
 					  Reset => D_Reset,
 					  Clk => D_CLK,
 					  PC => D_PC
 					);
-	
-	
-	--Same as the instruction register. In this project we execute only li, lw, sw and add instructions, so no branch.
-	--Otherwise we should add PC+4 in the IF/ID register
-	--IF/ID Register
-	IF_ID : Register32Bit
+
+	IF_ID_Register : GenericRegister
+		generic map ( Size => 32 )
 		port map ( CLK => D_CLK,
 					  RST => D_Reset,
-					  WE => instr_reg_we,												--WriteEnable will be controlled from HazardDetectionUnit
-					  Datain => D_Instr,													--COMES THE INSTR FROM MEM
-					  Dataout => instReg_to_decstage									--will connect to the input of dec_stage
-					);	
+					  WE => if_id_en,
+					  Datain => D_Instr,
+					  Dataout => if_id_instr
+					);
 
-	
-	Dec_Stage : DECSTAGE	
-		port map ( Instr => instReg_to_decstage,									--Contains the Instruction
-					  RF_WrEn => final_to_mux(31),	
-					  ALU_out => final_alu_out,										--Took input from alu register									
-					  MEM_out => mem_register_to_dec, 								--Output of the mem_reg connected
-					  RF_WrData_sel => final_to_mux(29),
-					  RF_B_sel => final_to_mux(30),
-					  DEC_RF_AWR => final_to_mux(28 downto 24),
+	IF_ID_Opcode <= if_id_instr(31 downto 26);
+
+	Dec_Stage : DECSTAGE
+		port map ( Instr => if_id_instr,
+					  RF_WrEn => mem_wb_output(70),
+					  ALU_out => mem_wb_output(36 downto 5),
+					  MEM_out => mem_wb_output(68 downto 37),
+					  RF_Address_Write => mem_wb_output(4 downto 0), 		
+					  RF_WrData_sel => mem_wb_output(69),						
+					  RF_B_sel => D_RF_B_Selection,
+					  FinalData => data_out,
 					  RST => D_Reset,
 					  Clk => D_CLK,
 					  Immed => immed_signal,
 					  RF_A => data_from_rfA,
 					  RF_B => data_from_rfB
-			  );
-
-
-	--ID/EX Register
-	-------------------------------------------------------------------------------
-								
-	--All control signals
-	rt_rd_rs_plus_signals(31 downto 23) <= D_RF_WrEnable & D_RF_B_Selection & D_RF_WrData_Selection & D_Byte_Operation & D_MEM_WrEnable & D_ALU_Bin_Selection & D_ALU_Op;
+			  );	
 	
-	--For Rs
-	rt_rd_rs_plus_signals(22 downto 18) <= instReg_to_decstage(25 downto 21);
 	
-	--For Rd
-	rt_rd_rs_plus_signals(17 downto 13) <= instReg_to_decstage(20 downto 16);
-	
-	--For Rt
-	rt_rd_rs_plus_signals(12 downto 8) <= instReg_to_decstage(15 downto 11);
-	
-	alpha_register : Register32Bit
-		port map ( CLK => D_CLK,
-					  RST => D_Reset,
-					  WE => '1',
-					  Datain => data_from_rfA,											--Comes from the decstage
-					  Dataout => alpha_to_ex 									      --Goes to ExStage
-					);
-					
-	beta_register : Register32Bit
-		port map ( CLK => D_CLK,
-					  RST => D_Reset,
-					  WE => '1',
-					  Datain => data_from_rfB,											--Comes from the decstag
-					  Dataout => beta_to_ex								         	--Goes to the Ex-stage
+	ControlMux : SignalMux
+		port map ( InputA(7) => D_RF_WrEnable,
+					  InputA(6) => D_RF_WrData_Selection,
+					  InputA(5) => D_MEM_WrEnable,
+					  InputA(4) => D_Byte_Operation,
+					  InputA(3) => D_ALU_Bin_Selection,
+					  InputA(2 downto 0) => D_ALU_Op,
+					  chooser => control_mux_selector, 					
+					  control_signal_out => control_mux_out
 					);	
 	
-	immed_register : Register32Bit			
-		port map ( CLK => D_CLK,
-					  RST => D_Reset,
-					  WE => '1',
-					  Datain => immed_signal,											--Comes from the decstag
-					  Dataout => immed_reg_out								         --Goes to the Ex-stage and opcode goes to AluControl
-					);					
 	
-	regs_and_control_signals : Register32Bit			
+--	id_ex_input(108 downto 107) <= D_RF_WrEnable & D_RF_WrData_Selection; 	--wb signals
+--	id_ex_input(106 downto 105) <= D_MEM_WrEnable & D_Byte_Operation;			--mem signals
+--	id_ex_input(104 downto 101) <= D_ALU_Bin_Selection & D_ALU_Op;				--ex signals
+--	id_ex_input(100 downto 69) <= data_from_rfA;										--RF_A
+--	id_ex_input(68 downto 37) <= data_from_rfB;										--RF_B
+--	id_ex_input(36 downto 5) <= immed_signal;											--Immed
+--	id_ex_input(4 downto 0) <= if_id_instr(20 downto 16);							--Rd
+	
+	ID_EX_Register : GenericRegister
+		generic map ( Size => 125)
 		port map ( CLK => D_CLK,
 					  RST => D_Reset,
 					  WE => '1',
-					  Datain => rt_rd_rs_plus_signals,								--Comes from the decstage
-					  Dataout => regs_and_control_signals_out  					--Goes to ExStage
-					);			
-					
-	----------------------------------------------------------------------------------
-
-
-	alu_ctrl : ALU_Control
-		port map ( instr_funct => immed_reg_out(5 downto 0),
-					  op => regs_and_control_signals_out(25 downto 23),
-					  alu_funct => funct
-					);
-
-
+					  Datain(124 downto 119) => if_id_instr(31 downto 26),					--Opcode
+					  Datain(118 downto 114) => if_id_instr(25 downto 21),					--Rs
+					  Datain(113 downto 109) => if_id_instr(15 downto 11),					--Rt
+					  Datain(108) => control_mux_out(7),
+					  Datain(107) => control_mux_out(6),
+					  Datain(106) => control_mux_out(5),
+					  Datain(105) => control_mux_out(4),
+					  Datain(104) => control_mux_out(3),
+					  Datain(103 downto 101) => control_mux_out(2 downto 0),
+					  Datain(100 downto 69) => data_from_rfA,
+					  Datain(68 downto 37) => data_from_rfB,
+					  Datain(36 downto 5) => immed_signal,
+					  Datain(4 downto 0) => if_id_instr(20 downto 16),		--Rd
+					  Dataout => id_ex_output
+					);	
+	
 	Ex_Stage : EXSTAGE
-		port map ( RF_A => alpha_to_ex,														--Inputs now are coming from the registers
-					  RF_B => beta_to_ex,
-					  Immed => immed_reg_out,
-					  ALU_Bin_sel => regs_and_control_signals_out(26),					--Take it from register
+		port map ( RF_A => mux_rfa_out,
+					  RF_B => mux_rfb_out,
+					  Immed => id_ex_output(36 downto 5),
+					  ALU_Bin_sel => id_ex_output(104),
 					  ALU_func => funct,
 					  ALU_out => alu_out_signal,
 					  ALU_zero => D_ALU_Zero
 					);
+
+	alu_ctrl : ALU_Control
+		port map ( instr_funct => id_ex_output(10 downto 5),						
+					  op => id_ex_output(103 downto 101),
+					  alu_funct => funct
+					);
+
+	Forward : ForwardingUnit
+		port map ( ID_EX_Rs => id_ex_output(118 downto 114),
+					  ID_EX_Rt => id_ex_output(113 downto 109),
+			        EX_MEM_Rd => ex_mem_output(4 downto 0),
+			        MEM_WB_Rd => mem_wb_output(4 downto 0),			
+					  EX_MEM_RF_WrEn => ex_mem_output(72),
+					  MEM_WB_RF_WrEn => mem_wb_output(70),
+					  
+					  FORWARD_A => forward_alpha,
+					  FORWARD_B =>	forward_beta
+					);
 	
+	Stall : HazardDetectionUnit
+		port map ( IF_ID_Rs => if_id_instr(25 downto 21),
+					  IF_ID_Rt => if_id_instr(15 downto 11),
+					  ID_EX_RD => id_ex_output(4 downto 0), 			--Rd
+					  ID_EX_MemWrEn => id_ex_output(106),
+					  ID_EX_Opcode => id_ex_output(124 downto 119),
+					  Control_Mux_Sel => control_mux_selector,
+					  IF_ID_WrEn => if_id_en,
+					  PC_LdEnable => pc_load_enable
+					);
 	
---	Destination_Mux : Mux2x1_5Bits
---		port map ( in0 => regs_and_control_signals_out(11 downto 7),				--Rt
---					  in1 => regs_and_control_signals_out(16 downto 12), 				--Rd
---					  sel => regs_and_control_signals_out(30),
---					  outt => idex_mux_out
---					);	
+
+	muxRFA : MUX_4x1
+		port map ( InputA => id_ex_output(100 downto 69),
+					  InputB => data_out,
+					  InputC => ex_mem_output(68 downto 37),
+					  InputD => (others => '0'),
+					  Selector => forward_alpha,
+					  MuxOut => mux_rfa_out
+					);
 	
-	
-		
-	--EX/MEM Register
-	-------------------------------------------------------------------------------
-	
-	--Ta shmata 8a synde8oyn me to id/ex
-	control_plus_rd_signal(31 downto 27) <= regs_and_control_signals_out(31 downto 27);
-	
-	--For Rd
-	control_plus_rd_signal(26 downto 22) <= regs_and_control_signals_out(17 downto 13);
-	
-	
-	alu_out_register : Register32Bit
+	muxRFB : MUX_4x1
+		port map ( InputA => id_ex_output(68 downto 37),
+					  InputB => data_out,
+					  InputC => ex_mem_output(68 downto 37),
+					  InputD => (others => '0'),
+					  Selector => forward_beta,
+					  MuxOut => mux_rfb_out		
+					);
+
+--	ex_mem_input(72 downto 71) <= id_ex_output(108 downto 107);					--Transfer wb signals
+--	ex_mem_input(70 downto 69) <= id_ex_output(106 downto 105);					--Transfer mem signals
+--	ex_mem_input(68 downto 37) <= alu_out_signal;									--Alu_Out
+--	ex_mem_input(36 downto 5) <= id_ex_output(68 downto 37);						--RF_B
+--	ex_mem_input(4 downto 0) <= id_ex_output(4 downto 0);							--Transfer Rd
+
+	EX_MEM_Register : GenericRegister
+		generic map ( Size => 73)
 		port map ( CLK => D_CLK,
 					  RST => D_Reset,
 					  WE => '1',
-					  Datain => alu_out_signal,										--Comes from the exstage
-					  Dataout => alu_register_out								      
-					);	
+					  Datain(72) => id_ex_output(108),
+					  Datain(71) => id_ex_output(107),
+					  Datain(70) => id_ex_output(106),
+					  Datain(69) => id_ex_output(105),
+					  Datain(68 downto 37) => alu_out_signal,
+					  Datain(36 downto 5) => mux_rfb_out,
+					  Datain(4 downto 0) => id_ex_output(4 downto 0),
+					  Dataout => ex_mem_output
+					);		
 
 
-	ex_mem_beta_register: Register32Bit
-		port map ( CLK => D_CLK,
-					  RST => D_Reset,
-					  WE => '1',
-					  Datain => beta_to_ex,												--Comes from the decstag
-					  Dataout => ex_mem_beta_register_out							--Goes to the Ex-stage
-					);	
-
-
-	dest_signals_register : Register32Bit
-		port map ( CLK => D_CLK,
-					  RST => D_Reset,
-					  WE => '1',
-					  Datain => control_plus_rd_signal,								--Comes from the decstag
-					  Dataout => dest_signals_register_out							--Goes to the Ex-stage
-					);	
-
-	-------------------------------------------------------------------------------
-
-	
 	Mem_Stage : MEMSTAGE
-		port map ( ByteOp => dest_signals_register_out(28),
-					  Mem_WrEn => dest_signals_register_out(27),
-					  ALU_MEM_Addr => alu_register_out,								--Register output taken
-					  MEM_DataIn => ex_mem_beta_register_out,						--Takes the data from beta register (Rd)
-					  MEM_DataOut => mem_dataOut_signal,							--ReadData -> go to MEM/EX
+		port map ( ByteOp => ex_mem_output(69),
+					  Mem_WrEn => ex_mem_output(70),
+					  ALU_MEM_Addr => ex_mem_output(68 downto 37),
+					  MEM_DataIn => ex_mem_output(36 downto 5),
+					  MEM_DataOut => mem_dataOut_signal,
 					  MM_WrEn => D_MM_WrEn,
 					  MM_Addr => D_MM_Addr,
 					  MM_WrData => D_MM_WrData,
 					  MM_RdData => D_MM_ReadData
 					);
-
-
-
-	--MEM/WB Register
-	-------------------------------------------------------------------------------
-
-	mem_wb_out(31 downto 29) <= dest_signals_register_out(31 downto 29);			--signals
-	mem_wb_out(28 downto 24) <= dest_signals_register_out(26 downto 22);			--register destination
-
-	memory_data_register : Register32Bit
-		port map ( CLK => D_CLK,
-					  RST => D_Reset,
-					  WE => '1',
-					  Datain => mem_dataOut_signal,									--COMES DATA FROM MEM
-					  Dataout => mem_register_to_dec									--The MEM_OUT input
-					);
-
-	memwb_alu_out_register : Register32Bit
-		port map ( CLK => D_CLK,
-					  RST => D_Reset,
-					  WE => '1',
-					  Datain => alu_register_out,										--Comes from the exstage
-					  Dataout => final_alu_out								      
-					);
 	
-	mem_wb_signals_plusRD_register : Register32Bit
+	
+--	mem_wb_input(70 downto 69) <= ex_mem_output(72 downto 71);					--Transfer wb signals
+--	mem_wb_input(68 downto 37) <= mem_dataOut_signal;								--MEM_OUT
+--	mem_wb_input(36 downto 5) <= ex_mem_output(68 downto 37);					--ALU_OUT
+--	mem_wb_input(4 downto 0) <= ex_mem_output(4 downto 0);						--Transfer Rd
+		
+	MEM_WB_Register : GenericRegister
+		generic map ( Size => 71)
 		port map ( CLK => D_CLK,
 					  RST => D_Reset,
 					  WE => '1',
-					  Datain => mem_wb_out,								
-					  Dataout => final_to_mux							
+					  Datain(70) => ex_mem_output(72),
+					  Datain(69) => ex_mem_output(71),
+					  Datain(68 downto 37) => mem_dataOut_signal,
+					  Datain(36 downto 5) => ex_mem_output(68 downto 37),
+					  Datain(4 downto 0) => ex_mem_output(4 downto 0),  
+					  Dataout => mem_wb_output
 					);	
-	
-	-------------------------------------------------------------------------------
-
 
 end Behavioral;
+
